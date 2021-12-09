@@ -53,7 +53,21 @@ public class StreamPopulator {
 	private final BackpressureSemaphore<UserRecordResult> backpressureSemaphore;
 
 
-	public StreamPopulator(String bucketRegion, String bucketName, String objectPrefix, String streamRegion, String streamName, boolean aggregate, String timestampAttributeName, float speedupFactor, long statisticsFrequencyMillies, boolean noWatermark, Instant seekToEpoch, int bufferSize, int maxOutstandingRecords, boolean noBackpressure) {
+	public StreamPopulator(String bucketRegion,
+			String bucketName,
+			String objectPrefix,
+			String streamRegion,
+			String streamName,
+			boolean aggregate,
+			String timestampAttributeName,
+			float speedupFactor,
+			long statisticsFrequencyMillies,
+			boolean noWatermark,
+			Instant seekToEpoch,
+			int bufferSize,
+			int maxOutstandingRecords,
+			boolean noBackpressure) {
+
 		KinesisProducerConfiguration producerConfiguration = new KinesisProducerConfiguration()
 				.setRegion(streamRegion)
 				.setRecordTtl(60_000)
@@ -215,22 +229,20 @@ public class StreamPopulator {
 			seekToEpoch = Instant.parse(line.getOptionValue("seek"));
 		}
 
-		StreamPopulator populator = new StreamPopulator(
-				line.getOptionValue("bucketRegion", "us-east-1"),
-				line.getOptionValue("bucketName", "aws-bigdata-blog"),
-				line.getOptionValue("objectPrefix", "artifacts/kinesis-analytics-taxi-consumer/taxi-trips.json.lz4/"),
-				line.getOptionValue("streamRegion", DEFAULT_REGION_NAME),
-				line.getOptionValue("streamName", "taxi-trip-events"),
-				line.hasOption("aggregate"),
-				line.getOptionValue("timestampAttributeName", "dropoff_datetime"),
-				Float.parseFloat(line.getOptionValue("speedup", "6480")),
-				Long.parseLong(line.getOptionValue("statisticsFrequency", "20000")),
-				line.hasOption("noWatermark"),
-				seekToEpoch,
-				Integer.parseInt(line.getOptionValue("bufferSize", "100000")),
-				Integer.parseInt(line.getOptionValue("maxOutstandingRecords", "10000")),
-				line.hasOption("noBackpressure")
-		);
+		StreamPopulator populator = new StreamPopulator(line.getOptionValue("bucketRegion", "us-east-1"),
+			line.getOptionValue("bucketName", "aws-bigdata-blog"),
+			line.getOptionValue("objectPrefix", "artifacts/kinesis-analytics-taxi-consumer/taxi-trips.json.lz4/"),
+			line.getOptionValue("streamRegion", DEFAULT_REGION_NAME),
+			line.getOptionValue("streamName", "taxi-trip-events"),
+			line.hasOption("aggregate"),
+			line.getOptionValue("timestampAttributeName", "dropoff_datetime"),
+			Float.parseFloat(line.getOptionValue("speedup", "6480")),
+			Long.parseLong(line.getOptionValue("statisticsFrequency", "20000")),
+			line.hasOption("noWatermark"),
+			seekToEpoch,
+			Integer.parseInt(line.getOptionValue("bufferSize", "100000")),
+			Integer.parseInt(line.getOptionValue("maxOutstandingRecords", "10000")),
+			line.hasOption("noBackpressure"));
 
 		populator.populate();
 	}

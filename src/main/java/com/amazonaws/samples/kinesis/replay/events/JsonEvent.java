@@ -24,53 +24,51 @@ import java.time.Instant;
 import java.util.Comparator;
 
 public class JsonEvent extends Event {
-  public final Instant timestamp;
-  public final Instant ingestionTime;
+	public final Instant timestamp;
+	public final Instant ingestionTime;
 
-  public JsonEvent(String payload, Instant timestamp, Instant ingestionTime) {
-    super(payload);
+	public JsonEvent(String payload, Instant timestamp, Instant ingestionTime) {
+		super(payload);
 
-    this.timestamp = timestamp;
-    this.ingestionTime = ingestionTime;
-  }
+		this.timestamp = timestamp;
+		this.ingestionTime = ingestionTime;
+	}
 
-  public static final Comparator<JsonEvent> timestampComparator =
-      (JsonEvent o1, JsonEvent o2) -> o1.timestamp.compareTo(o2.timestamp);
+	public static final Comparator<JsonEvent> timestampComparator = (JsonEvent o1, JsonEvent o2) -> o1.timestamp.compareTo(o2.timestamp);
 
-  public static final Comparator<JsonEvent> ingestionTimeComparator =
-      (JsonEvent o1, JsonEvent o2) -> o1.ingestionTime.compareTo(o2.ingestionTime);
+	public static final Comparator<JsonEvent> ingestionTimeComparator = (JsonEvent o1, JsonEvent o2) -> o1.ingestionTime.compareTo(o2.ingestionTime);
 
-  public static class Parser {
-    private Instant ingestionStartTime = Instant.now();
-    private Instant firstEventTimestamp;
+	public static class Parser {
+		private Instant ingestionStartTime = Instant.now();
+		private Instant firstEventTimestamp;
 
-    private final float speedupFactor;
-    private final String timestampAttributeName;
+		private final float speedupFactor;
+		private final String timestampAttributeName;
 
-    public Parser(float speedupFactor, String timestampAttributeName) {
-      this.speedupFactor = speedupFactor;
-      this.timestampAttributeName = timestampAttributeName;
-    }
+		public Parser(float speedupFactor, String timestampAttributeName) {
+			this.speedupFactor = speedupFactor;
+			this.timestampAttributeName = timestampAttributeName;
+		}
 
-    public JsonEvent parse(String payload) {
-      JsonNode json = Jackson.fromJsonString(payload, JsonNode.class);
+		public JsonEvent parse(String payload) {
+			JsonNode json = Jackson.fromJsonString(payload, JsonNode.class);
 
-      Instant timestamp = Instant.parse(json.get(timestampAttributeName).asText());
+			Instant timestamp = Instant.parse(json.get(timestampAttributeName).asText());
 
-      if (firstEventTimestamp == null) {
-        firstEventTimestamp = timestamp;
-      }
+			if (firstEventTimestamp == null) {
+				firstEventTimestamp = timestamp;
+			}
 
-      long deltaToFirstTimestamp = Math.round(Duration.between(firstEventTimestamp, timestamp).toMillis()/speedupFactor);
+			long deltaToFirstTimestamp = Math.round(Duration.between(firstEventTimestamp, timestamp).toMillis() / speedupFactor);
 
-      Instant ingestionTime = ingestionStartTime.plusMillis(deltaToFirstTimestamp);
+			Instant ingestionTime = ingestionStartTime.plusMillis(deltaToFirstTimestamp);
 
-      return new JsonEvent(payload, timestamp, ingestionTime);
-    }
+			return new JsonEvent(payload, timestamp, ingestionTime);
+		}
 
-    public void reset() {
-      firstEventTimestamp = null;
-      ingestionStartTime = Instant.now();
-    }
-  }
+		public void reset() {
+			firstEventTimestamp = null;
+			ingestionStartTime = Instant.now();
+		}
+	}
 }
