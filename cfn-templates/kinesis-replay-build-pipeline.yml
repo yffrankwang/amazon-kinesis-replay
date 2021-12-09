@@ -158,7 +158,7 @@ Resources:
             def handler(event, context):
               s3 = boto3.client('s3')
   
-              replay_source = urlopen('https://github.com/aws-samples/amazon-kinesis-replay/archive/${Release}.zip')
+              replay_source = urlopen('https://github.com/yffrankwang/amazon-kinesis-replay/archive/${Release}.zip')
               s3.put_object(Bucket='${ArtifactBucket}',Key='sources/amazon-kinesis-replay.zip',Body=replay_source.read())
   
               cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
