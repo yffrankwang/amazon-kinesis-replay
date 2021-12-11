@@ -49,7 +49,7 @@ public class StreamPopulator {
 	private final KinesisProducer kinesisProducer;
 	private final EventBuffer eventBuffer;
 	private final BackpressureSemaphore<UserRecordResult> backpressureSemaphore;
-
+	private final boolean notSend;
 
 	public StreamPopulator(String bucketRegion,
 			String bucketName,
@@ -63,7 +63,8 @@ public class StreamPopulator {
 			Instant seekToEpoch,
 			int bufferSize,
 			int maxOutstandingRecords,
-			boolean noBackpressure) {
+			boolean noBackpressure,
+			boolean notSend) {
 
 		KinesisProducerConfiguration producerConfiguration = new KinesisProducerConfiguration()
 				.setRegion(streamRegion)
@@ -73,6 +74,7 @@ public class StreamPopulator {
 
 		final S3Client s3 = S3Client.builder().region(Region.of(bucketRegion)).build();
 
+		this.notSend = notSend;
 		this.streamName = streamName;
 		this.bucketName = bucketName;
 		this.objectPrefix = objectPrefix;
@@ -155,7 +157,16 @@ public class StreamPopulator {
 		}
 	}
 
+	private JsonEvent traceEvent;
 	private void ingestEvent(JsonEvent event) {
+		if (notSend) {
+			if (traceEvent == null || Duration.between(traceEvent.ingestionTime, event.ingestionTime).toMillis() > 1000) {
+				traceEvent = event;
+				LOG.info("Event: {}", event.payload);
+			}
+			return;
+		}
+		
 		//queue the next event for ingestion to the Kinesis stream through the KPL
 		ListenableFuture<UserRecordResult> f = kinesisProducer.addUserRecord(
 				streamName, Integer.toString(event.hashCode()), event.toByteBuffer());
@@ -183,6 +194,7 @@ public class StreamPopulator {
 				.addOption("bufferSize", true, "size of the buffer that holds events to sent to the stream")
 				.addOption("maxOutstandingRecords", true, "block producer if more than maxOutstandingRecords are in flight")
 				.addOption("noBackpressure", "don't block producer if too many messages are in flight")
+				.addOption("notSend", "do not send to kinesis")
 				.addOption("help", "print this help message");
 
 		CommandLine line = new DefaultParser().parse(options, args);
@@ -198,18 +210,20 @@ public class StreamPopulator {
 		}
 
 		StreamPopulator populator = new StreamPopulator(line.getOptionValue("bucketRegion", "us-east-1"),
-			line.getOptionValue("bucketName", "aws-bigdata-blog"),
-			line.getOptionValue("objectPrefix", "artifacts/kinesis-analytics-taxi-consumer/taxi-trips.json.lz4/"),
+			line.getOptionValue("bucketName", "nyc-tlc"),
+			line.getOptionValue("objectPrefix", "trip data/"),
 			line.getOptionValue("streamRegion", DEFAULT_REGION_NAME),
 			line.getOptionValue("streamName", "taxi-trip-events"),
 			line.hasOption("aggregate"),
 			line.getOptionValue("timestampAttributeName", "dropoff_datetime"),
-			Float.parseFloat(line.getOptionValue("speedup", "6480")),
+			Float.parseFloat(line.getOptionValue("speedup", "3600")),
 			Long.parseLong(line.getOptionValue("statisticsFrequency", "20000")),
 			seekToEpoch,
 			Integer.parseInt(line.getOptionValue("bufferSize", "100000")),
 			Integer.parseInt(line.getOptionValue("maxOutstandingRecords", "10000")),
-			line.hasOption("noBackpressure"));
+			line.hasOption("noBackpressure"),
+			line.hasOption("notSend")
+			);
 
 		populator.populate();
 	}

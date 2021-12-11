@@ -17,14 +17,22 @@
 
 package com.amazonaws.samples.kinesis.replay.utils;
 
-import com.amazonaws.samples.kinesis.replay.events.JsonEvent;
-import java.io.*;
+import java.io.IOException;
+import java.io.InputStreamReader;
 import java.time.Instant;
 import java.util.Iterator;
-import org.apache.commons.compress.compressors.CompressorException;
-import org.apache.commons.compress.compressors.CompressorStreamFactory;
+import java.util.List;
+import java.util.Map;
+
+import org.apache.commons.csv.CSVFormat;
+import org.apache.commons.csv.CSVParser;
+import org.apache.commons.csv.CSVRecord;
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import com.amazonaws.samples.kinesis.replay.events.JsonEvent;
+
 import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
@@ -39,10 +47,11 @@ public class EventReader implements Iterator<JsonEvent> {
 	private final Iterator<S3Object> s3Objects;
 
 	private final JsonEvent.Parser eventParser;
-	private BufferedReader objectStream;
+	private String objectType;
+	private CSVParser objectReader;
+	private List<String> objectHeader;
 
 	private JsonEvent next;
-	private boolean hasNext = true;
 
 	public EventReader(S3Client s3, String bucketName, String prefix, float speedupFactor, String timestampAttributeName) {
 		this.s3 = s3;
@@ -53,113 +62,142 @@ public class EventReader implements Iterator<JsonEvent> {
 		this.s3Objects = s3.listObjectsV2Paginator(request).contents().iterator();
 
 		// initialize next and hasNext fields
-		next();
+		if (nextS3Object()) {
+			nextRecord();
+		}
 	}
 
 	public void seek(Instant timestamp) {
-		seek(timestamp, 10_000);
-	}
-
-	public void seek(Instant timestamp, int skipNumLines) {
-		while (next.timestamp.isBefore(timestamp) && hasNext) {
-			// skip skipNumLines before parsing next event
-			try {
-				for (int i = 0; i < skipNumLines; i++) {
-					objectStream.readLine();
-				}
-			} catch (IOException | NullPointerException e) {
-				// if the next line cannot be read, that's fine, the next S3 object will be opened and read by next()
-			}
-
+		while (next != null && next.timestamp.isBefore(timestamp)) {
 			next();
 		}
 	}
 
 	@Override
 	public boolean hasNext() {
-		return hasNext;
+		return next != null;
+	}
+
+	public void close() {
+		if (objectReader != null) {
+			try {
+				objectReader.close();
+			} catch (IOException e) {
+				LOG.warn("failed to close object: {}", e);
+			}
+			
+			objectReader = null;
+		}
+	}
+
+	private boolean setObjectType(String key) {
+		objectType = null;
+		if (StringUtils.containsIgnoreCase(key, "yellow")) {
+			objectType = "yellow";
+			return true;
+		}
+
+		if (StringUtils.containsIgnoreCase(key, "green")) {
+			objectType = "green";
+			return true;
+		}
+
+		//TODO:
+//		if (StringUtils.containsIgnoreCase(key, "fhvhv")) {
+//			objectType = "fhvhv";
+//			return true;
+//		}
+//		if (StringUtils.containsIgnoreCase(key, "fhv")) {
+//			objectType = "fhv";
+//			return true;
+//		}
+		return false;
+	}
+
+	private boolean nextS3Object() {
+		while (s3Objects.hasNext()) {
+			// if another object has been previously read, close it before opening another one
+			close();
+			
+			// try to open the next S3 object
+			S3Object s3Object = s3Objects.next();
+	
+			if (!StringUtils.endsWithIgnoreCase(s3Object.key(), ".csv") || !setObjectType(s3Object.key())) {
+				LOG.info("skipping object s3://{}/{}", bucketName, s3Object.key());
+				continue;
+			}
+	
+			LOG.info("reading object s3://{}/{}", bucketName, s3Object.key());
+			try {
+				GetObjectRequest request = GetObjectRequest.builder().bucket(bucketName).key(s3Object.key()).build();
+				objectReader = CSVFormat.DEFAULT.parse(new InputStreamReader(s3.getObject(request)));
+				
+				Iterator<CSVRecord> objectIterator = objectReader.iterator();
+				if (!objectIterator.hasNext()) {
+					continue;
+				}
+				
+				CSVRecord r = objectIterator.next();
+				objectHeader = r.toList();
+				if (objectHeader.isEmpty()) {
+					LOG.warn("skipping object s3://{}/{} as it hash no csv header", bucketName, s3Object.key());
+					continue;
+				}
+				
+				DataNormalizer.normalizeHeader(objectHeader);
+				
+				return true;
+			} catch (SdkClientException e) {
+				// if we cannot read this object, skip it and try to read the next one
+				LOG.warn("skipping object s3://{}/{} as it failed to open", bucketName, s3Object.key());
+				LOG.debug("failed to open object", e);
+				continue;
+			} catch (IOException e) {
+				LOG.warn("skipping object s3://{}/{} as it failed to read", bucketName, s3Object.key());
+				LOG.debug("failed to read object", e);
+				continue;
+			}
+		}
+
+		return false;
+	}
+	
+	private void nextRecord() {
+		next = null;
+
+		while (objectReader != null) {
+			Iterator<CSVRecord> it = objectReader.iterator();
+			while (it.hasNext()) {
+				try {
+					List<String> record = it.next().toList();
+					Map<String, Object> data = DataNormalizer.list2map(objectHeader, record);
+					data.put("type", objectType);
+					next = eventParser.parse(data);
+					if (next != null) {
+						return;
+					}
+				} catch (Exception e) {
+					Throwable t = e.getCause();
+					if (t instanceof IOException) {
+						LOG.warn("Failed to read record [{}]: {}", objectReader.getCurrentLineNumber(), t.getMessage());
+						break;
+					}
+					LOG.warn("Failed to read record [{}]: {}", objectReader.getCurrentLineNumber(), e.getMessage());
+				}
+			}
+			
+			nextS3Object();
+		}
 	}
 
 	@Override
 	public JsonEvent next() {
-		String nextLine = null;
-
-		try {
-			nextLine = objectStream.readLine();
-		} catch (IOException | NullPointerException e) {
-			// if the next line cannot be read, that's fine, the next S3 object will be opened and read subsequently
+		if (next == null) {
+			return null;
 		}
 
-		if (nextLine == null) {
-			if (s3Objects.hasNext()) {
-				// if another object has been previously read, close it before opening another one
-				if (objectStream != null) {
-					try {
-						objectStream.close();
-					} catch (IOException e) {
-						LOG.warn("failed to close object: {}", e);
-					}
-				}
-
-				// try to open the next S3 object
-				S3Object s3Object = s3Objects.next();
-
-				// skip objects that obviously don't contain any data; TODO: make this configurable
-				if (s3Object.key().endsWith("README.md")) {
-					LOG.info("skipping object s3://{}/{}", bucketName, s3Object.key());
-
-					return next();
-				}
-
-				LOG.info("reading object s3://{}/{}", bucketName, s3Object.key());
-
-				InputStream stream;
-				try {
-					GetObjectRequest request = GetObjectRequest.builder().bucket(bucketName).key(s3Object.key()).build();
-					stream = new BufferedInputStream(s3.getObject(request));
-				} catch (SdkClientException e) {
-					// if we cannot read this object, skip it and try to read the next one
-					LOG.warn("skipping object s3://{}/{} as it failed to open", bucketName, s3Object.key());
-					LOG.debug("failed to open object", e);
-
-					// if a failure occurs, re-initialize the parser, so that it seems as if we are starting a complete fresh ingestion from the next object
-					eventParser.reset();
-
-					return next();
-				}
-
-				try {
-					stream = new CompressorStreamFactory().createCompressorInputStream(stream);
-				} catch (CompressorException e) {
-					// if we cannot decompress a stream, that's fine, as it probably is just a stream of uncompressed data
-					LOG.info("unable to decompress object: {}", e.getMessage());
-				}
-
-				objectStream = new BufferedReader(new InputStreamReader(stream));
-
-				// try to read the next object from the newly opened stream
-				return next();
-			} else {
-				// if there is no next object to parse
-				hasNext = false;
-
-				return next;
-			}
-		} else {
-			JsonEvent result = next;
-
-			try {
-				// parse the next event and return the current one
-				next = eventParser.parse(nextLine);
-
-				return result;
-			} catch (IllegalArgumentException e) {
-				// if the current line cannot be parsed, just skip it and emit a warning
-
-				LOG.warn("ignoring line: {}", nextLine);
-
-				return next();
-			}
-		}
+		JsonEvent result = next;
+		nextRecord();
+		return result;
 	}
 }

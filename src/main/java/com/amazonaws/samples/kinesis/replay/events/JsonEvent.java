@@ -17,11 +17,19 @@
 
 package com.amazonaws.samples.kinesis.replay.events;
 
-import com.amazonaws.util.json.Jackson;
-import com.fasterxml.jackson.databind.JsonNode;
+import java.text.ParseException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
+import java.util.Date;
+import java.util.Map;
+import java.util.TimeZone;
+
+import org.apache.commons.lang3.time.FastDateFormat;
+
+import com.amazonaws.samples.kinesis.replay.utils.DataNormalizer;
+import com.amazonaws.util.json.Jackson;
+import com.fasterxml.jackson.databind.JsonNode;
 
 public class JsonEvent extends Event {
 	public final Instant timestamp;
@@ -44,17 +52,15 @@ public class JsonEvent extends Event {
 
 		private final float speedupFactor;
 		private final String timestampAttributeName;
+		
+		private final FastDateFormat dateFormat = FastDateFormat.getInstance("YYYY-MM-dd HH:mm:ss", TimeZone.getTimeZone("America/New_York"));
 
 		public Parser(float speedupFactor, String timestampAttributeName) {
 			this.speedupFactor = speedupFactor;
 			this.timestampAttributeName = timestampAttributeName;
 		}
 
-		public JsonEvent parse(String payload) {
-			JsonNode json = Jackson.fromJsonString(payload, JsonNode.class);
-
-			Instant timestamp = Instant.parse(json.get(timestampAttributeName).asText());
-
+		private JsonEvent toJsonEvent(Instant timestamp, String payload) {
 			if (firstEventTimestamp == null) {
 				firstEventTimestamp = timestamp;
 			}
@@ -64,6 +70,24 @@ public class JsonEvent extends Event {
 			Instant ingestionTime = ingestionStartTime.plusMillis(deltaToFirstTimestamp);
 
 			return new JsonEvent(payload, timestamp, ingestionTime);
+		}
+		
+		public JsonEvent parse(Map<String, Object> data) throws ParseException {
+			DataNormalizer.normalizeRecord(data);
+
+			String s = data.get(timestampAttributeName).toString();
+			Date d = DataNormalizer.dateFormat.parse(s);
+			Instant timestamp = Instant.ofEpochMilli(d.getTime());
+			String payload = Jackson.toJsonString(data);
+			return toJsonEvent(timestamp, payload);
+		}
+		
+		public JsonEvent parse(String payload) {
+			JsonNode json = Jackson.fromJsonString(payload, JsonNode.class);
+
+			Instant timestamp = Instant.parse(json.get(timestampAttributeName).asText());
+
+			return toJsonEvent(timestamp, payload);
 		}
 
 		public void reset() {
