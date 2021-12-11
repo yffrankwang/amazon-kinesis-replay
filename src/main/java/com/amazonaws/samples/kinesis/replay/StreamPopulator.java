@@ -160,7 +160,7 @@ public class StreamPopulator {
 	private JsonEvent traceEvent;
 	private void ingestEvent(JsonEvent event) {
 		if (notSend) {
-			if (traceEvent == null || Duration.between(traceEvent.ingestionTime, event.ingestionTime).toMillis() > 1000) {
+			if (traceEvent == null || Duration.between(traceEvent.ingestionTime, event.ingestionTime).toMillis() > 3000) {
 				traceEvent = event;
 				LOG.info("Event: {}", event.payload);
 			}

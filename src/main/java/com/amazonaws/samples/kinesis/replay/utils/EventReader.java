@@ -126,7 +126,8 @@ public class EventReader implements Iterator<JsonEvent> {
 				LOG.info("skipping object s3://{}/{}", bucketName, s3Object.key());
 				continue;
 			}
-	
+
+			LOG.info("---------------------------------------------------");
 			LOG.info("reading object s3://{}/{}", bucketName, s3Object.key());
 			try {
 				GetObjectRequest request = GetObjectRequest.builder().bucket(bucketName).key(s3Object.key()).build();

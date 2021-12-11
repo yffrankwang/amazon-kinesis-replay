@@ -30,6 +30,7 @@ public class DataNormalizer {
 
 	private static final Set<String> datetimes = new HashSet<String>();
 	private static final Set<String> doubles = new HashSet<String>();
+	private static final Set<String> longs = new HashSet<String>();
 	static {
 		CollectionUtils.addAll(datetimes, new Object[] {"dropoff_datetime", "pickup_datetime" });
 		CollectionUtils.addAll(doubles, new Object[] {
@@ -38,6 +39,7 @@ public class DataNormalizer {
 			"dropoff_latitude", 
 			"pickup_longitude"
 		});
+		CollectionUtils.addAll(longs, new Object[] { "passenger_count" });
 	}
 
 	public static List<String> normalizeHeader(List<String> header) {
@@ -72,6 +74,12 @@ public class DataNormalizer {
 						en.setValue((double)0);
 					} else {
 						en.setValue(Double.parseDouble(v));
+					}
+				} else if (longs.contains(k)) {
+					if (StringUtils.isEmpty(v)) {
+						en.setValue((long)0);
+					} else {
+						en.setValue(Long.parseLong(v));
 					}
 				}
 			} catch (Exception e) {
