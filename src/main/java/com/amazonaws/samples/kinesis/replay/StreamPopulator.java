@@ -22,6 +22,7 @@ import com.amazonaws.samples.kinesis.replay.events.JsonEvent;
 import com.amazonaws.samples.kinesis.replay.utils.BackpressureSemaphore;
 import com.amazonaws.samples.kinesis.replay.utils.EventBuffer;
 import com.amazonaws.samples.kinesis.replay.utils.EventReader;
+import com.amazonaws.samples.kinesis.replay.utils.WatermarkGenerator;
 import com.amazonaws.services.kinesis.producer.KinesisProducer;
 import com.amazonaws.services.kinesis.producer.KinesisProducerConfiguration;
 import com.amazonaws.services.kinesis.producer.UserRecordResult;
@@ -48,6 +49,7 @@ public class StreamPopulator {
 	private final long statisticsFrequencyMillies;
 	private final KinesisProducer kinesisProducer;
 	private final EventBuffer eventBuffer;
+	private final WatermarkGenerator watermarkGenerator;
 	private final BackpressureSemaphore<UserRecordResult> backpressureSemaphore;
 	private final boolean notSend;
 
@@ -60,6 +62,7 @@ public class StreamPopulator {
 			String timestampAttributeName,
 			float speedupFactor,
 			long statisticsFrequencyMillies,
+			boolean noWatermark,
 			Instant seekToEpoch,
 			int bufferSize,
 			int maxOutstandingRecords,
@@ -88,6 +91,14 @@ public class StreamPopulator {
 
 		eventBuffer = new EventBuffer(eventReader, bufferSize);
 		eventBuffer.start();
+
+		if (!noWatermark) {
+			watermarkGenerator = new WatermarkGenerator(Region.of(streamRegion), streamName);
+
+			watermarkGenerator.start();
+		} else {
+			watermarkGenerator = null;
+		}
 
 		if (!noBackpressure) {
 			this.backpressureSemaphore = new BackpressureSemaphore<>(maxOutstandingRecords);
@@ -136,10 +147,16 @@ public class StreamPopulator {
 				if ((System.currentTimeMillis() - ingestionStartTime) / statisticsFrequencyMillies != statisticsLastOutputTimeslot) {
 					double statisticsBatchEventRate = Math.round(1000.0 * statisticsBatchEventCount / statisticsFrequencyMillies);
 
-					Instant dropoffTime = eventBuffer.peek().timestamp;
+					Instant dropoffTime;
 
-					LOG.info("all events with dropoff time until {} have been sent ({} events/sec, {} buffer size)",
-						dropoffTime, statisticsBatchEventRate, eventBuffer.size());
+					if (watermarkGenerator != null) {
+						dropoffTime = watermarkGenerator.getMinWatermark();
+					} else {
+						dropoffTime = eventBuffer.peek().timestamp;
+					}
+
+					LOG.info("all events with dropoff time until {} have been sent ({} events/sec, {} replay lag)",
+							dropoffTime, statisticsBatchEventRate, Duration.ofSeconds(replayTimeGap.getSeconds()));
 
 					statisticsBatchEventCount = 0;
 					statisticsLastOutputTimeslot = (System.currentTimeMillis() - ingestionStartTime) / statisticsFrequencyMillies;
@@ -151,6 +168,10 @@ public class StreamPopulator {
 			//allow thread to exit
 		} finally {
 			eventBuffer.interrupt();
+
+			if (watermarkGenerator != null) {
+				watermarkGenerator.interrupt();
+			}
 
 			kinesisProducer.flushSync();
 			kinesisProducer.destroy();
@@ -176,7 +197,12 @@ public class StreamPopulator {
 			backpressureSemaphore.acquire(f);
 		}
 
-		LOG.trace("sent event {}", event);
+		if (watermarkGenerator != null) {
+			//monitor if the event has actually been sent and adapt the largest possible watermark value accordingly
+			watermarkGenerator.trackTimestamp(f, event);
+		}
+
+		LOG.trace("add event {}", event);
 	}
 
 	public static void main(String[] args) throws ParseException {
@@ -191,6 +217,7 @@ public class StreamPopulator {
 				.addOption("aggregate", "turn on aggregation of multiple events into a single Kinesis record")
 				.addOption("seek", true, "start replaying events at given timestamp")
 				.addOption("statisticsFrequency", true, "print statistics every statisticFrequency ms")
+				.addOption("noWatermark", "don't ingest watermarks into the stream")
 				.addOption("bufferSize", true, "size of the buffer that holds events to sent to the stream")
 				.addOption("maxOutstandingRecords", true, "block producer if more than maxOutstandingRecords are in flight")
 				.addOption("noBackpressure", "don't block producer if too many messages are in flight")
@@ -218,6 +245,7 @@ public class StreamPopulator {
 			line.getOptionValue("timestampAttributeName", "dropoff_datetime"),
 			Float.parseFloat(line.getOptionValue("speedup", "3600")),
 			Long.parseLong(line.getOptionValue("statisticsFrequency", "20000")),
+			line.hasOption("noWatermark"),
 			seekToEpoch,
 			Integer.parseInt(line.getOptionValue("bufferSize", "100000")),
 			Integer.parseInt(line.getOptionValue("maxOutstandingRecords", "10000")),

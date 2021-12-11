@@ -23,9 +23,6 @@ import java.time.Instant;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.Map;
-import java.util.TimeZone;
-
-import org.apache.commons.lang3.time.FastDateFormat;
 
 import com.amazonaws.samples.kinesis.replay.utils.DataNormalizer;
 import com.amazonaws.util.json.Jackson;
@@ -53,8 +50,6 @@ public class JsonEvent extends Event {
 		private final float speedupFactor;
 		private final String timestampAttributeName;
 		
-		private final FastDateFormat dateFormat = FastDateFormat.getInstance("YYYY-MM-dd HH:mm:ss", TimeZone.getTimeZone("America/New_York"));
-
 		public Parser(float speedupFactor, String timestampAttributeName) {
 			this.speedupFactor = speedupFactor;
 			this.timestampAttributeName = timestampAttributeName;
