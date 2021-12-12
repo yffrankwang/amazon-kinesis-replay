@@ -51,7 +51,8 @@ public class DateConvertTest {
 	
 	@Test
 	public void testDateConvertGreen() throws Exception {
-		convert("D:\\Develop\\Projects\\aws\\tlc\\data\\green_tripdata_2018-01.csv1");
+		convert("D:\\Develop\\Projects\\aws\\tlc\\data\\green_tripdata_2018-01.csv");
+		convert("D:\\Develop\\Projects\\aws\\tlc\\data\\green_tripdata_2014-01.csv1");
 	}
 	
 	@Test

@@ -12,12 +12,16 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.time.FastDateFormat;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class DataNormalizer {
 	public static final FastDateFormat dateFormat = FastDateFormat.getInstance("yyyy-MM-dd HH:mm:ss");
 
+	private static final Logger LOG = LoggerFactory.getLogger(DataNormalizer.class);
+	
 	@SuppressWarnings("unchecked")
-	private static Map<String, String> headers = MapUtils.putAll(new HashMap<String, String>(), new String[][] {
+	private static Map<String, String> HEADERS = MapUtils.putAll(new HashMap<String, String>(), new String[][] {
 		{ "ratecodeid", "rate_code" },
 		{ "vendorid", "vendor_id" },
 		{ "dolocationid", "dropoff_location_id" },
@@ -28,18 +32,18 @@ public class DataNormalizer {
 		{ "lpep_pickup_datetime", "pickup_datetime" },
 	});
 
-	private static final Set<String> datetimes = new HashSet<String>();
-	private static final Set<String> doubles = new HashSet<String>();
-	private static final Set<String> longs = new HashSet<String>();
+	private static final Set<String> DATETIMES = new HashSet<String>();
+	private static final Set<String> DOUBLES = new HashSet<String>();
+	private static final Set<String> LONGS = new HashSet<String>();
 	static {
-		CollectionUtils.addAll(datetimes, new Object[] {"dropoff_datetime", "pickup_datetime" });
-		CollectionUtils.addAll(doubles, new Object[] {
+		CollectionUtils.addAll(DATETIMES, new Object[] {"dropoff_datetime", "pickup_datetime" });
+		CollectionUtils.addAll(DOUBLES, new Object[] {
 			"dropoff_latitude", 
-			"pickup_longitude", 
-			"dropoff_latitude", 
+			"dropoff_longitude", 
+			"pickup_latitude", 
 			"pickup_longitude"
 		});
-		CollectionUtils.addAll(longs, new Object[] { "passenger_count" });
+		CollectionUtils.addAll(LONGS, new Object[] { "passenger_count" });
 	}
 
 	public static List<String> normalizeHeader(List<String> header) {
@@ -52,16 +56,16 @@ public class DataNormalizer {
 	public static String normalizeHeader(String name) {
 		name = StringUtils.strip(name);
 		name = StringUtils.lowerCase(name);
-		String v = headers.get(name);
+		String v = HEADERS.get(name);
 		return v == null ? name : v;
 	}
 
-	public static void normalizeRecord(Map<String, Object> record) {
+	public static Map<String, Object> normalizeRecord(Map<String, Object> record) {
 		for (Entry<String, Object> en : record.entrySet()) {
 			String k = en.getKey();
 			String v = (String)en.getValue();
 			try {
-				if (datetimes.contains(k)) {
+				if (DATETIMES.contains(k)) {
 					dateFormat.parse(v);
 				} else if ("trip_distance".equals(k)) {
 					if (StringUtils.isEmpty(v)) {
@@ -69,13 +73,13 @@ public class DataNormalizer {
 					} else {
 						en.setValue(mile2meter(Double.parseDouble(v)));
 					}
-				} else if (doubles.contains(k)) {
+				} else if (DOUBLES.contains(k)) {
 					if (StringUtils.isEmpty(v)) {
 						en.setValue((double)0);
 					} else {
 						en.setValue(Double.parseDouble(v));
 					}
-				} else if (longs.contains(k)) {
+				} else if (LONGS.contains(k)) {
 					if (StringUtils.isEmpty(v)) {
 						en.setValue((long)0);
 					} else {
@@ -83,15 +87,17 @@ public class DataNormalizer {
 					}
 				}
 			} catch (Exception e) {
-				throw new IllegalArgumentException("Invalid value " + k + ": " + v);
+				LOG.warn("Discard invalid record " + k + "=" + v + " " + record);
+				return null;
 			}
 		}
+		return record;
 	}
 
 	public static Map<String, Object> list2map(List<String> header, List<String> record) {
 		Map<String, Object> data = new TreeMap<String, Object>();
 		
-		for (int i = 0; i < headers.size(); i++) {
+		for (int i = 0; i < header.size(); i++) {
 			String h = header.get(i);
 			String v = i < record.size() ? record.get(i) : "";
 			data.put(h, v);

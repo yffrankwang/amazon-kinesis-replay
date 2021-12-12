@@ -67,12 +67,20 @@ public class JsonEvent extends Event {
 			return new JsonEvent(payload, timestamp, ingestionTime);
 		}
 		
-		public JsonEvent parse(Map<String, Object> data) throws ParseException {
-			DataNormalizer.normalizeRecord(data);
+		public JsonEvent parse(Map<String, Object> data) {
+			data = DataNormalizer.normalizeRecord(data);
+			if (data == null) {
+				return null;
+			}
 
-			String s = data.get(timestampAttributeName).toString();
-			Date d = DataNormalizer.dateFormat.parse(s);
-			Instant timestamp = Instant.ofEpochMilli(d.getTime());
+			Instant timestamp = Instant.EPOCH;
+			try {
+				String s = data.get(timestampAttributeName).toString();
+				Date d = DataNormalizer.dateFormat.parse(s);
+				timestamp = Instant.ofEpochMilli(d.getTime());
+			} catch (ParseException e) {
+			}
+
 			String payload = Jackson.toJsonString(data);
 			return toJsonEvent(timestamp, payload);
 		}
