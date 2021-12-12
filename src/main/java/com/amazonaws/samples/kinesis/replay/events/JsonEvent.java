@@ -17,11 +17,9 @@
 
 package com.amazonaws.samples.kinesis.replay.events;
 
-import java.text.ParseException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
-import java.util.Date;
 import java.util.Map;
 
 import com.amazonaws.samples.kinesis.replay.utils.DataNormalizer;
@@ -73,15 +71,11 @@ public class JsonEvent extends Event {
 				return null;
 			}
 
-			Instant timestamp = Instant.EPOCH;
-			try {
-				String s = data.get(timestampAttributeName).toString();
-				Date d = DataNormalizer.dateFormat.parse(s);
-				timestamp = Instant.ofEpochMilli(d.getTime());
-			} catch (ParseException e) {
-			}
+			String s = data.get(timestampAttributeName).toString();
+			Instant timestamp = DataNormalizer.parseInstant(s);
 
 			String payload = Jackson.toJsonString(data);
+
 			return toJsonEvent(timestamp, payload);
 		}
 		

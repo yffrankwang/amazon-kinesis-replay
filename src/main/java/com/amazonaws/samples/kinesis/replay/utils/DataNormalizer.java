@@ -1,5 +1,7 @@
 package com.amazonaws.samples.kinesis.replay.utils;
 
+import java.text.ParseException;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -16,7 +18,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class DataNormalizer {
-	public static final FastDateFormat dateFormat = FastDateFormat.getInstance("yyyy-MM-dd HH:mm:ss");
+	private static final FastDateFormat DATEFMT = FastDateFormat.getInstance("yyyy-MM-dd HH:mm:ss");
 
 	private static final Logger LOG = LoggerFactory.getLogger(DataNormalizer.class);
 	
@@ -32,10 +34,13 @@ public class DataNormalizer {
 		{ "lpep_pickup_datetime", "pickup_datetime" },
 	});
 
+	private static final Set<String> REQUIRED = new HashSet<String>();
 	private static final Set<String> DATETIMES = new HashSet<String>();
 	private static final Set<String> DOUBLES = new HashSet<String>();
 	private static final Set<String> LONGS = new HashSet<String>();
+
 	static {
+		CollectionUtils.addAll(REQUIRED, new Object[] {"dropoff_datetime", "pickup_datetime" });
 		CollectionUtils.addAll(DATETIMES, new Object[] {"dropoff_datetime", "pickup_datetime" });
 		CollectionUtils.addAll(DOUBLES, new Object[] {
 			"dropoff_latitude", 
@@ -44,6 +49,14 @@ public class DataNormalizer {
 			"pickup_longitude"
 		});
 		CollectionUtils.addAll(LONGS, new Object[] { "passenger_count" });
+	}
+
+	public static Instant parseInstant(String s) {
+		try {
+			return Instant.ofEpochMilli(DATEFMT.parse(s).getTime());
+		} catch (ParseException e) {
+			return Instant.EPOCH;
+		}
 	}
 
 	public static List<String> normalizeHeader(List<String> header) {
@@ -61,12 +74,20 @@ public class DataNormalizer {
 	}
 
 	public static Map<String, Object> normalizeRecord(Map<String, Object> record) {
+		for (String k : REQUIRED) {
+			String v = (String)record.get(k);
+			if (StringUtils.isEmpty(v)) {
+				LOG.warn("Discard invalid record " + k + "=" + v + " " + record);
+				return null;
+			}
+		}
+		
 		for (Entry<String, Object> en : record.entrySet()) {
 			String k = en.getKey();
 			String v = (String)en.getValue();
 			try {
 				if (DATETIMES.contains(k)) {
-					dateFormat.parse(v);
+					DATEFMT.parse(v);
 				} else if ("trip_distance".equals(k)) {
 					if (StringUtils.isEmpty(v)) {
 						en.setValue(0L);
