@@ -17,11 +17,16 @@
 
 package com.amazonaws.samples.kinesis.replay.utils;
 
-import com.amazonaws.samples.kinesis.replay.events.JsonEvent;
 import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.Semaphore;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.amazonaws.samples.kinesis.replay.events.JsonEvent;
+
 public class EventBuffer extends Thread {
+	private static final Logger LOG = LoggerFactory.getLogger(EventBuffer.class);
 
 	private boolean hasNext = true;
 
@@ -38,21 +43,25 @@ public class EventBuffer extends Thread {
 	}
 
 	public void run() {
-		try {
-			while (!Thread.currentThread().isInterrupted()) {
-				if (reader.hasNext()) {
-					semaphore.acquire();
+		LOG.info("Starting event buffer");
 
-					eventPool.add(reader.next());
-				} else {
-					hasNext = false;
+		while (reader.hasNext()) {
+			try {
+				LOG.debug("require a semaphore: {} / {}", semaphore.availablePermits(), eventPool.size());
+				semaphore.acquire();
+				
+				JsonEvent je = reader.next();
 
-					Thread.currentThread().interrupt();
-				}
+				LOG.debug("add event: {}", je.timestamp);
+				eventPool.add(je);
+				LOG.debug("event added: {}", eventPool.size());
+			} catch (InterruptedException e) {
+				LOG.debug("interrupted");
 			}
-		} catch (InterruptedException e) {
-			// allow thread to exit
 		}
+
+		hasNext = false;
+		LOG.info("Event buffer thread exit.");
 	}
 
 	public boolean hasNext() {
@@ -60,9 +69,13 @@ public class EventBuffer extends Thread {
 	}
 
 	public JsonEvent take() throws InterruptedException {
-		semaphore.release();
+		LOG.debug("take a event of {} / {}", semaphore.availablePermits(), eventPool.size());
+		JsonEvent je = eventPool.take();
 
-		return eventPool.take();
+		LOG.debug("release semaphore {}", semaphore.availablePermits());
+		semaphore.release();
+		
+		return je;
 	}
 
 	public JsonEvent peek() {

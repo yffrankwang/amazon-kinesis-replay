@@ -102,15 +102,14 @@ public class EventReader implements Iterator<JsonEvent> {
 			return true;
 		}
 
-		//TODO:
-//		if (StringUtils.containsIgnoreCase(key, "fhvhv")) {
-//			objectType = "fhvhv";
-//			return true;
-//		}
-//		if (StringUtils.containsIgnoreCase(key, "fhv")) {
-//			objectType = "fhv";
-//			return true;
-//		}
+		if (StringUtils.containsIgnoreCase(key, "fhvhv")) {
+			objectType = "fhvhv";
+			return true;
+		}
+		if (StringUtils.containsIgnoreCase(key, "fhv")) {
+			objectType = "fhv";
+			return true;
+		}
 		return false;
 	}
 
@@ -160,12 +159,12 @@ public class EventReader implements Iterator<JsonEvent> {
 			}
 		}
 
+		LOG.info("no next s3 object");
 		return false;
 	}
 	
 	private void nextRecord() {
 		next = null;
-
 		while (objectReader != null) {
 			Iterator<CSVRecord> it = objectReader.iterator();
 			while (it.hasNext()) {
@@ -175,6 +174,7 @@ public class EventReader implements Iterator<JsonEvent> {
 					data.put("type", objectType);
 					next = eventParser.parse(data);
 					if (next != null) {
+						LOG.debug("get record {}: {}", objectReader.getCurrentLineNumber(), next.timestamp);
 						return;
 					}
 				} catch (Exception e) {
@@ -187,7 +187,9 @@ public class EventReader implements Iterator<JsonEvent> {
 				}
 			}
 			
-			nextS3Object();
+			if (!nextS3Object()) {
+				return;
+			}
 		}
 	}
 
