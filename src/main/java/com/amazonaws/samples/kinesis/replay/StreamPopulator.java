@@ -143,7 +143,9 @@ public class StreamPopulator {
 				Duration replayTimeGap = Duration.between(event.ingestionTime, Instant.now());
 
 				if (replayTimeGap.isNegative()) {
-					LOG.info("sleep {} ms - {} > {}", replayTimeGap, event.ingestionTime, Instant.now());
+					if (replayTimeGap.toMinutes() > 1) {
+						LOG.info("sleep {} ms for ingestion time {} > {}", replayTimeGap, event.ingestionTime, Instant.now());
+					}
 					Thread.sleep(-replayTimeGap.toMillis());
 				}
 
