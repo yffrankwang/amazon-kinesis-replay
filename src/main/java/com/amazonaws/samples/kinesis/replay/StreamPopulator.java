@@ -31,6 +31,7 @@ import org.slf4j.LoggerFactory;
 
 import com.amazonaws.regions.Regions;
 import com.amazonaws.samples.kinesis.replay.events.JsonEvent;
+import com.amazonaws.samples.kinesis.replay.utils.BackpressureSemaphore;
 import com.amazonaws.samples.kinesis.replay.utils.EventBuffer;
 import com.amazonaws.samples.kinesis.replay.utils.EventReader;
 import com.amazonaws.samples.kinesis.replay.utils.WatermarkGenerator;
@@ -57,7 +58,7 @@ public class StreamPopulator {
 	private final WatermarkGenerator watermarkGenerator;
 	private final int maxOutstandingRecords;
 	private final KinesisProducer kinesisProducer;
-//	private final BackpressureSemaphore<UserRecordResult> backpressureSemaphore;
+	private final BackpressureSemaphore<UserRecordResult> backpressureSemaphore;
 
 	public StreamPopulator(String bucketRegion,
 			String bucketName,
@@ -110,11 +111,11 @@ public class StreamPopulator {
 			watermarkGenerator = null;
 		}
 
-//		if (maxOutstandingRecords > 0) {
-//			this.backpressureSemaphore = new BackpressureSemaphore<>(maxOutstandingRecords);
-//		} else {
-//			this.backpressureSemaphore = null;
-//		}
+		if (maxOutstandingRecords > 0) {
+			this.backpressureSemaphore = new BackpressureSemaphore<>(maxOutstandingRecords);
+		} else {
+			this.backpressureSemaphore = null;
+		}
 	}
 
 
@@ -205,28 +206,27 @@ public class StreamPopulator {
 		//queue the next event for ingestion to the Kinesis stream through the KPL
 		ListenableFuture<UserRecordResult> f = kinesisProducer.addUserRecord(streamName, Integer.toString(event.hashCode()), event.toByteBuffer());
 
-//		if (backpressureSemaphore != null) {
-//			//block if too many events are buffered locally
-//			backpressureSemaphore.acquire(f);
-//		}
-
 		if (watermarkGenerator != null) {
 			//monitor if the event has actually been sent and adapt the largest possible watermark value accordingly
 			watermarkGenerator.trackTimestamp(f, event);
 		}
 
-		int outstandingRecords = kinesisProducer.getOutstandingRecordsCount();
-		if (maxOutstandingRecords > 0 && outstandingRecords > maxOutstandingRecords) {
-			int sec = maxOutstandingRecords / outstandingRecords;
-
-			LOG.debug("sleep {} seconds for too many events are buffered locally", sec);
-
-			try {
-				Thread.sleep(1000 * sec);
-			} catch (InterruptedException e) {
-			}
+		if (backpressureSemaphore != null) {
+			//block if too many events are buffered locally
+			backpressureSemaphore.acquire(f);
 		}
 
+//		int outstandingRecords = kinesisProducer.getOutstandingRecordsCount();
+//		if (maxOutstandingRecords > 0 && outstandingRecords > maxOutstandingRecords) {
+//			int sec = maxOutstandingRecords / outstandingRecords;
+//
+//			LOG.debug("sleep {} seconds for too many events are buffered locally", sec);
+//
+//			try {
+//				Thread.sleep(1000 * sec);
+//			} catch (InterruptedException e) {
+//			}
+//		}
 	}
 
 	public static void main(String[] args) throws ParseException {
