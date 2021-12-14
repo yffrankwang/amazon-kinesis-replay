@@ -28,7 +28,7 @@ import com.amazonaws.samples.kinesis.replay.events.JsonEvent;
 public class EventBuffer extends Thread {
 	private static final Logger LOG = LoggerFactory.getLogger(EventBuffer.class);
 
-	private boolean hasNext = true;
+	private volatile boolean running;
 
 	private EventReader reader;
 	private final int bufferSize;
@@ -45,6 +45,7 @@ public class EventBuffer extends Thread {
 	public void run() {
 		LOG.info("Starting event buffer");
 
+		running = true;
 		while (reader.hasNext()) {
 			try {
 				LOG.debug("require a semaphore: {} / {}", semaphore.availablePermits(), eventPool.size());
@@ -60,12 +61,12 @@ public class EventBuffer extends Thread {
 			}
 		}
 
-		hasNext = false;
+		running = false;
 		LOG.info("Event buffer thread exit.");
 	}
 
 	public boolean hasNext() {
-		return hasNext || !eventPool.isEmpty();
+		return running || !eventPool.isEmpty();
 	}
 
 	public JsonEvent take() throws InterruptedException {
