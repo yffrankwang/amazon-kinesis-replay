@@ -23,7 +23,7 @@ Parameters:
 
   InstanceType:
     Type: String
-    Default: c5.large
+    Default: t3.small
 
 
 Outputs:
